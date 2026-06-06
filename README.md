@@ -45,7 +45,7 @@ questions fast:
 Requires Python 3.9+.
 
 ```bash
-git clone https://github.com/your-username/partstash.git
+git clone https://github.com/94xhn/partstash.git
 cd partstash
 pip install -r requirements.txt
 streamlit run app.py
@@ -134,7 +134,7 @@ CSV 文件，并提供图表、搜索和「我是不是已经有这个料了？�
 ### 安装与运行（Python 3.9+）
 
 ```bash
-git clone https://github.com/your-username/partstash.git
+git clone https://github.com/94xhn/partstash.git
 cd partstash
 pip install -r requirements.txt
 streamlit run app.py

@@ -6,7 +6,7 @@ process is light.
 ## Development setup
 
 ```bash
-git clone https://github.com/your-username/partstash.git
+git clone https://github.com/94xhn/partstash.git
 cd partstash
 python -m venv .venv
 # Windows: .venv\Scripts\activate   |   macOS/Linux: source .venv/bin/activate
