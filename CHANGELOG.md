@@ -6,6 +6,9 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Added
+- CI: gitleaks secret-scan job that scans the full history on every push/PR.
+
 ## [0.2.0] - 2026-06-07
 
 ### Added
