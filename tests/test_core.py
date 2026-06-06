@@ -9,10 +9,12 @@ import pytest
 from partstash.core import (
     STORE_COLUMNS,
     build_inventory_from_purchases,
+    check_bom_against_store,
     clean_text,
     ensure_store_schema,
     extract_item_table,
     infer_column,
+    low_stock,
     normalize_col,
     parse_keywords,
     parse_number,
@@ -156,3 +158,82 @@ class TestBuildInventoryFromPurchases:
         bearing = out[out["名称"].str.contains("轴承")].iloc[0]
         assert bearing["领域"] == "电子"
         assert bearing["识别来源"] == "强制入库"
+
+
+def _store(rows):
+    """Build a minimal store frame from (型号, 名称, 库存数量) tuples."""
+    return pd.DataFrame(
+        [{"型号": m, "名称": n, "库存数量": q} for m, n, q in rows]
+    )
+
+
+class TestLowStock:
+    def test_filters_at_or_below_threshold(self):
+        store = _store([("A", "a", 3), ("B", "b", 10), ("C", "c", 5)])
+        low = low_stock(store, 5)
+        assert list(low["型号"]) == ["A", "C"]  # sorted scarcest first
+
+    def test_empty_store(self):
+        assert low_stock(pd.DataFrame(columns=["库存数量"]), 5).empty
+
+
+class TestCheckBomAgainstStore:
+    def _store(self):
+        return _store(
+            [
+                ("0603WAF1002T5E", "10k 电阻", 400),
+                ("1N4148WS", "开关二极管", 100),
+                ("0603WAF1002T5E", "10k 电阻(另一批)", 50),  # same mpn, second row
+            ]
+        )
+
+    def test_sufficient_part(self):
+        bom = pd.DataFrame({"MPN": ["1N4148WS"], "Qty": [20]})
+        out = check_bom_against_store(self._store(), bom, "MPN", "Qty")
+        row = out[out["型号"] == "1N4148WS"].iloc[0]
+        assert row["库存数量"] == 100
+        assert row["缺口"] == 0
+        assert row["状态"] == "充足"
+
+    def test_shortfall_computed(self):
+        bom = pd.DataFrame({"MPN": ["1N4148WS"], "Qty": [150]})
+        out = check_bom_against_store(self._store(), bom, "MPN", "Qty")
+        row = out.iloc[0]
+        assert row["缺口"] == 50
+        assert row["状态"] == "缺料"
+
+    def test_stock_summed_across_duplicate_mpn_rows(self):
+        bom = pd.DataFrame({"MPN": ["0603WAF1002T5E"], "Qty": [100]})
+        out = check_bom_against_store(self._store(), bom, "MPN", "Qty")
+        assert out.iloc[0]["库存数量"] == 450  # 400 + 50
+
+    def test_case_insensitive_match(self):
+        bom = pd.DataFrame({"MPN": ["1n4148ws"], "Qty": [10]})
+        out = check_bom_against_store(self._store(), bom, "MPN", "Qty")
+        assert out.iloc[0]["库存数量"] == 100
+
+    def test_part_missing_from_store(self):
+        bom = pd.DataFrame({"MPN": ["STM32F103C8T6"], "Qty": [5]})
+        out = check_bom_against_store(self._store(), bom, "MPN", "Qty")
+        row = out.iloc[0]
+        assert row["库存数量"] == 0
+        assert row["缺口"] == 5
+        assert row["匹配名称"] == "（库存中无此型号）"
+
+    def test_demand_aggregated_per_mpn(self):
+        bom = pd.DataFrame({"MPN": ["1N4148WS", "1N4148WS"], "Qty": [30, 40]})
+        out = check_bom_against_store(self._store(), bom, "MPN", "Qty")
+        assert len(out) == 1
+        assert out.iloc[0]["需求数量"] == 70
+
+    def test_no_qty_column_counts_one_per_row(self):
+        bom = pd.DataFrame({"MPN": ["1N4148WS", "1N4148WS", "1N4148WS"]})
+        out = check_bom_against_store(self._store(), bom, "MPN", qty_col=None)
+        assert out.iloc[0]["需求数量"] == 3
+
+    def test_largest_shortfall_sorted_first(self):
+        bom = pd.DataFrame(
+            {"MPN": ["1N4148WS", "STM32F103C8T6"], "Qty": [150, 999]}
+        )
+        out = check_bom_against_store(self._store(), bom, "MPN", "Qty")
+        assert out.iloc[0]["型号"] == "STM32F103C8T6"  # shortfall 999 > 50

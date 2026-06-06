@@ -11,6 +11,6 @@ so the data logic can be unit-tested in isolation from the UI:
 The Streamlit dashboard in ``app.py`` is a thin presentation layer on top of these.
 """
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 __all__ = ["__version__"]

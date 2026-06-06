@@ -36,6 +36,9 @@ questions fast:
 - 💾 **Persistent CSV store** — merge new orders into your long-term inventory
   (upsert keyed on the part), edit quantities in-place, survives restarts.
 - 🔎 **Pre-purchase search** with type-alias expansion.
+- 📉 **Low-stock alerts** — set a quantity threshold and get a shortlist of parts to reorder.
+- 🧾 **BOM shortfall check** — upload a KiCad / CSV BOM and see exactly which parts you're
+  short, and by how much, before you place an order.
 - 📊 **Charts** — top-20 by stock, domain breakdown, live totals.
 - 📤 **Excel export** of the adjusted summary plus the raw detail.
 - 🧱 **Zero cloud** — everything runs and stays on your machine.
@@ -105,8 +108,8 @@ executable.
 
 ## Roadmap
 
-- Low-stock thresholds and alerts.
-- BOM check: upload a KiCad / CSV BOM and see what you're short.
+- ~~Low-stock thresholds and alerts.~~ ✅ Added in 0.2.0.
+- ~~BOM check: upload a KiCad / CSV BOM and see what you're short.~~ ✅ Added in 0.2.0.
 - LCSC / JLCPCB part-number enrichment.
 - Storage-location (bin/drawer) tracking.
 
@@ -127,6 +130,8 @@ CSV 文件，并提供图表、搜索和「我是不是已经有这个料了？�
 - 🏷️ 关键词规则 + 型号串启发式判定「电子 / 机械 / 未确定」，规则可在页面里实时修改
 - 💾 持久化 CSV 库存库，新采购单按「元器件键」增量合并（upsert），可页内改数量
 - 🔎 采购前查询（带类型别名扩展，搜「电阻」也能命中 `0603WAF...`）
+- 📉 库存低位预警：设阈值，自动列出快用完、需补货的料
+- 🧾 BOM 缺口检查：上传 KiCad / CSV 的 BOM，对比库存，告诉你哪些料不够、还差几个
 - 📊 Top20 库存柱状图、领域占比饼图、实时统计
 - 📤 一键导出 Excel（调整后汇总 + 原始明细）
 - 🧱 纯本地，无需联网

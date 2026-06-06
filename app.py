@@ -25,9 +25,11 @@ from partstash.classify import (
 )
 from partstash.core import (
     build_inventory_from_purchases,
+    check_bom_against_store,
     ensure_store_schema,
     extract_item_table,
     infer_column,
+    low_stock,
     now_text,
     parse_keywords,
     parse_number,
@@ -84,6 +86,20 @@ def make_download_xlsx(adjusted: pd.DataFrame, detail: pd.DataFrame) -> bytes:
         adjusted.to_excel(writer, sheet_name="调整后汇总", index=False)
         detail.to_excel(writer, sheet_name="原始明细", index=False)
     return bio.getvalue()
+
+
+def read_bom_file(file_bytes: bytes, filename: str) -> pd.DataFrame:
+    """Read a BOM upload (CSV or Excel) into a flat frame with a clean header row."""
+    name = filename.lower()
+    if name.endswith(".csv"):
+        for enc in ("utf-8-sig", "gbk", "utf-8"):
+            try:
+                return pd.read_csv(BytesIO(file_bytes), encoding=enc)
+            except (UnicodeDecodeError, pd.errors.ParserError):
+                continue
+        return pd.read_csv(BytesIO(file_bytes), encoding="utf-8", engine="python")
+    engine = "xlrd" if name.endswith(".xls") and not name.endswith(".xlsx") else None
+    return pd.read_excel(BytesIO(file_bytes), engine=engine)
 
 
 # --------------------------------------------------------------------------- #
@@ -155,6 +171,82 @@ if right_btn.button("导出库存库.xlsx"):
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         key="download_store_xlsx",
     )
+
+# --------------------------------------------------------------------------- #
+# Low-stock alert
+# --------------------------------------------------------------------------- #
+if not stored_df.empty:
+    st.divider()
+    st.subheader("📉 库存低位预警")
+    threshold = st.number_input(
+        "库存数量阈值（≤ 该值视为偏低）",
+        min_value=0.0, value=10.0, step=1.0, key="low_stock_threshold",
+    )
+    low = low_stock(stored_df, threshold)
+    if low.empty:
+        st.success(f"没有库存 ≤ {threshold:.0f} 的元器件。")
+    else:
+        st.warning(f"有 {len(low)} 种元器件库存 ≤ {threshold:.0f}，建议补货。")
+        st.dataframe(
+            low[["元器件键", "名称", "型号", "分类", "领域", "库存数量", "更新时间"]],
+            use_container_width=True, hide_index=True,
+        )
+        st.download_button(
+            "下载低库存清单.csv",
+            data=low.to_csv(index=False).encode("utf-8-sig"),
+            file_name="low_stock.csv", mime="text/csv", key="dl_low_stock",
+        )
+
+# --------------------------------------------------------------------------- #
+# BOM shortfall check
+# --------------------------------------------------------------------------- #
+st.divider()
+st.subheader("🧾 BOM 缺口检查")
+st.caption("上传 KiCad / CSV 的 BOM，对比库存库，看哪些料不够、还差几个。")
+bom_file = st.file_uploader(
+    "上传 BOM 文件（.csv / .xls / .xlsx）", type=["csv", "xls", "xlsx"], key="bom_upload"
+)
+if bom_file is not None:
+    try:
+        bom_df = read_bom_file(bom_file.read(), bom_file.name)
+    except Exception as exc:  # noqa: BLE001 - surface any parse error to the user
+        st.error(f"读取 BOM 失败：{exc}")
+        bom_df = pd.DataFrame()
+
+    if bom_df.empty:
+        st.error("BOM 没有读到数据。")
+    else:
+        bom_cols = list(bom_df.columns)
+        guess_mpn = infer_column(bom_cols, "model")
+        guess_qty = infer_column(bom_cols, "qty")
+        cc1, cc2 = st.columns(2)
+        mpn_col = cc1.selectbox(
+            "型号 / MPN 列", options=bom_cols,
+            index=bom_cols.index(guess_mpn) if guess_mpn in bom_cols else 0,
+            key="bom_mpn_col",
+        )
+        qty_options = ["（每行按 1 件）"] + bom_cols
+        qty_default = bom_cols.index(guess_qty) + 1 if guess_qty in bom_cols else 0
+        qty_pick = cc2.selectbox("数量列", options=qty_options, index=qty_default, key="bom_qty_col")
+        qty_col = None if qty_pick == "（每行按 1 件）" else qty_pick
+
+        result = check_bom_against_store(stored_df, bom_df, mpn_col, qty_col)
+        short = result[result["状态"] == "缺料"]
+
+        m1, m2, m3 = st.columns(3)
+        m1.metric("BOM 物料种类", f"{len(result):,}")
+        m2.metric("缺料种类", f"{len(short):,}")
+        m3.metric("总缺口数量", f"{short['缺口'].sum():,.0f}")
+        if short.empty:
+            st.success("库存可满足整张 BOM。")
+        else:
+            st.warning(f"有 {len(short)} 种料不足，下单前请补齐。")
+        st.dataframe(result, use_container_width=True, hide_index=True)
+        st.download_button(
+            "下载缺口清单.csv",
+            data=short.to_csv(index=False).encode("utf-8-sig"),
+            file_name="bom_shortfall.csv", mime="text/csv", key="dl_bom_short",
+        )
 
 # --------------------------------------------------------------------------- #
 # Import purchases section

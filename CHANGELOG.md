@@ -6,6 +6,17 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-06-07
+
+### Added
+- **Low-stock alert** — set a quantity threshold and see every part at or below it,
+  with a downloadable shortlist (`partstash.core.low_stock`).
+- **BOM shortfall check** — upload a KiCad / CSV BOM and compare it against the
+  inventory store; reports per-part demand, stock, shortfall and status, summed
+  across duplicate part-number rows and case-insensitive on the MPN
+  (`partstash.core.check_bom_against_store`). Exports a shortfall CSV.
+- Tests for both new functions (suite now at 61 tests).
+
 ## [0.1.0] - 2026-06-07
 
 First public release.

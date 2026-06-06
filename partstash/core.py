@@ -304,3 +304,63 @@ def build_inventory_from_purchases(
     return agg[
         ["元器件键", "名称", "型号", "分类", "识别来源", "自动领域", "领域", "库存数量", "单件估价"]
     ].copy()
+
+
+def low_stock(store_df: pd.DataFrame, threshold: float) -> pd.DataFrame:
+    """Return store rows at or below ``threshold`` units, scarcest first.
+
+    A part with exactly ``threshold`` units counts as low. An empty store yields an
+    empty frame.
+    """
+    if store_df.empty:
+        return store_df.copy()
+    low = store_df[store_df["库存数量"] <= threshold].copy()
+    return low.sort_values("库存数量")
+
+
+def check_bom_against_store(
+    store_df: pd.DataFrame,
+    bom_df: pd.DataFrame,
+    mpn_col: str,
+    qty_col: str | None = None,
+) -> pd.DataFrame:
+    """Compare a BOM against the inventory store, keyed on part number (型号).
+
+    Args:
+        store_df: The persisted inventory (must have ``型号``, ``名称``, ``库存数量``).
+        bom_df: The uploaded BOM. Each row references a part by ``mpn_col``.
+        mpn_col: Column in ``bom_df`` holding the manufacturer part number / 型号.
+        qty_col: Column holding the required quantity. When ``None``, every BOM row
+            counts as a demand of 1 (one row per reference designator).
+
+    Returns:
+        One row per distinct part number, with columns
+        ``型号, 匹配名称, 需求数量, 库存数量, 缺口, 状态`` — sorted with the largest
+        shortfall first. ``状态`` is ``"缺料"`` when short, else ``"充足"``;
+        ``匹配名称`` is ``"（库存中无此型号）"`` for parts absent from the store.
+    """
+    work = pd.DataFrame()
+    work["型号"] = bom_df[mpn_col].astype(str).str.strip()
+    work["需求数量"] = bom_df[qty_col].map(parse_number) if qty_col else 1.0
+    work = work[work["型号"].ne("")].copy()
+
+    needed = work.groupby("型号", as_index=False)["需求数量"].sum()
+    needed["_key"] = needed["型号"].str.lower()
+
+    if store_df.empty:
+        stock_map: dict[str, float] = {}
+        name_map: dict[str, str] = {}
+    else:
+        store = store_df.copy()
+        store["_key"] = store["型号"].astype(str).str.strip().str.lower()
+        store = store[store["_key"].ne("")]
+        stock_map = store.groupby("_key")["库存数量"].sum().to_dict()
+        name_map = store.groupby("_key")["名称"].first().to_dict()
+
+    needed["库存数量"] = needed["_key"].map(stock_map).fillna(0.0)
+    needed["缺口"] = (needed["需求数量"] - needed["库存数量"]).clip(lower=0)
+    needed["状态"] = needed["缺口"].map(lambda s: "缺料" if s > 0 else "充足")
+    needed["匹配名称"] = needed["_key"].map(name_map).fillna("（库存中无此型号）")
+
+    result = needed[["型号", "匹配名称", "需求数量", "库存数量", "缺口", "状态"]]
+    return result.sort_values("缺口", ascending=False).reset_index(drop=True)
